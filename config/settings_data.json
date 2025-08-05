@@ -137,7 +137,7 @@
               "show_phone_numb": true,
               "show_email": false,
               "show_social_links": false,
-              "show_stores_page": false,
+              "show_stores_page": true,
               "show_currency_switcher": true,
               "show_country_selector": false,
               "show_language_switcher": false,

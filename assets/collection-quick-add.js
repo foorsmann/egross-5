@@ -340,32 +340,72 @@
       }catch(err){ cartQty = 0; }
       const available = Math.max(maxQty - cartQty,0);
       let resetQty = false;
-      if(available <= 0){
-        this.error.show(window.ConceptSGMStrings?.cartLimit || 'Stoc indisponibil');
-        this.toggleSpinner(false);
-        return;
-      }
-      if(requestedQty > available){
-        formData.set('quantity', available);
-        resetQty = true;
-        this.error.show(window.ConceptSGMStrings?.cartLimit || 'Stoc insuficient');
-      }
+        if(available <= 0){
+          this.error.show(window.ConceptSGMStrings?.cartLimit || 'Cantitatea maxima pentru acest produs este deja in cos.');
+          this.toggleSpinner(false);
+          return;
+        }
+        if(requestedQty > available){
+          formData.set('quantity', available);
+          resetQty = true;
+          this.error.show(window.ConceptSGMStrings?.cartLimit || 'Cantitatea maxima pentru acest produs este deja in cos.');
+        }
       const config = {
         method:'POST',
         headers:{Accept:'application/javascript','X-Requested-With':'XMLHttpRequest'},
         body: formData
       };
       const settings = window.ConceptSGMSettings || {};
-      fetch(`${settings.routes?.cart_add_url || '/cart/add'}`, config)
-        .then(r=>r.json())
-        .then(data=>{
-          window.ConceptSGMEvents?.emit('COLLECTION_ITEM_ADDED', data);
-          window.Shopify?.onItemAdded?.(data);
-          if(resetQty && qtyInput){ applyCappedQtyState(qtyInput); }
-          this.error.hide();
-        })
-        .catch(()=>{ this.error.show(window.ConceptSGMStrings?.cartError || 'Eroare la adaugare'); })
-        .finally(()=>{ this.toggleSpinner(false); });
+        fetch(`${settings.routes?.cart_add_url || '/cart/add'}`, config)
+          .then(async r => {
+            let body;
+            try{
+              const ct = r.headers.get('content-type');
+              if(ct && ct.includes('application/json')){
+                body = await r.json();
+              }else{
+                const text = await r.text();
+                body = { message: text };
+              }
+            }catch(parseErr){
+              body = {};
+            }
+            return { statusCode: r.status, statusText: r.statusText, body };
+          })
+          .then(({ statusCode, statusText, body }) => {
+            if(statusCode >= 400 || body.status){
+              let msg = body.description || body.message || statusText;
+              if(msg && typeof msg === 'string' && /<\/?html/i.test(msg)){
+                msg = window.ConceptSGMStrings?.cartError || 'Error';
+              }
+              const errData = body.errors;
+              if(!msg && errData){
+                if(typeof errData === 'string') msg = errData;
+                else if(Array.isArray(errData)) msg = errData[0];
+                else if(typeof errData === 'object'){
+                  const key = Object.keys(errData)[0];
+                  msg = Array.isArray(errData[key]) ? errData[key][0] : errData[key];
+                }
+              }
+              if(statusCode === 429){
+                msg = 'Ati trimis prea multe cereri. Va rugam sa incercati din nou mai tarziu.';
+              }
+              this.error.show(msg);
+            }else{
+              window.ConceptSGMEvents?.emit('COLLECTION_ITEM_ADDED', body);
+              window.Shopify?.onItemAdded?.(body);
+              if(resetQty && qtyInput){ applyCappedQtyState(qtyInput); }
+              this.error.hide();
+            }
+          })
+          .catch(err => {
+            let msg = err && err.message || '';
+            if(!msg || /<\/?html/i.test(msg)){
+              msg = window.ConceptSGMStrings?.cartError || 'Error';
+            }
+            this.error.show(msg);
+          })
+          .finally(()=>{ this.toggleSpinner(false); });
     }
   }
   if(!customElements.get('collection-product-form')){
